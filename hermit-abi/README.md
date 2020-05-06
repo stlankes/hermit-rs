@@ -4,7 +4,7 @@
 [![Documentation](https://docs.rs/hermit-abi/badge.svg)](https://docs.rs/hermit-abi)
 [![License](https://img.shields.io/crates/l/hermit-abi.svg)](https://img.shields.io/crates/l/hermit-abi.svg)
 
-This is small interface to call functions from the unikernel [RustyHermit](https://github.com/hermitcore/libhermit-rs).
+This is crate exposes the interface functions for the unikernel [RustyHermit](https://github.com/hermitcore/libhermit-rs), so that you can link against the static kernel library.
 
 Please read the README of [RustyHermit](https://github.com/hermitcore/libhermit-rs) for more information.
 
