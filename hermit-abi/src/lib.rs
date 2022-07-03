@@ -72,6 +72,26 @@ extern "C" {
 	fn sys_set_priority(tid: Tid, prio: u8);
 }
 
+/// Describe possibele error from the network interface
+#[derive(Debug, Clone, Copy)]
+pub enum NetworkError {
+	/// A parameter was incorrect.
+	InvalidInput,
+	/// The connection was refused by the remote server.
+	ConnectionRefused,
+	/// The operation needs to block to complete,
+	/// but the blocking operation was requested to not occur.
+	WouldBlock,
+	/// The I/O operation’s timeout expired, causing it to be canceled.
+	TimedOut,
+	/// The network operation failed because it was not connected yet.
+	NotConnected,
+	/// This operation is unsupported on this platform.
+	Unsupported,
+	/// A custom error that does not fall under any other network error kind.
+	Other,
+}
+
 /// A thread handle type
 pub type Tid = u32;
 

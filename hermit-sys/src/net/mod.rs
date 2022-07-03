@@ -14,6 +14,7 @@ use std::u16;
 #[cfg(target_arch = "aarch64")]
 use aarch64::regs::*;
 use futures_lite::future;
+use hermit_abi::NetworkError;
 use lazy_static::lazy_static;
 use smoltcp::iface::{self, SocketHandle};
 use smoltcp::phy::Device;
@@ -26,12 +27,11 @@ use smoltcp::time::{Duration, Instant};
 use smoltcp::wire::IpAddress;
 #[cfg(feature = "dhcpv4")]
 use smoltcp::wire::{IpCidr, Ipv4Address, Ipv4Cidr};
-use smoltcp::Error;
 #[cfg(target_arch = "aarch64")]
 use tock_registers::interfaces::Readable;
 
 use crate::net::device::HermitNet;
-use crate::net::executor::{block_on, spawn};
+use crate::net::executor::{block_on, block_with_timeout_on, poll_on, spawn};
 use crate::net::mutex::Mutex;
 use crate::net::waker::WakerRegistration;
 
@@ -192,9 +192,10 @@ impl AsyncSocket {
 		res
 	}
 
-	pub(crate) async fn connect(&self, ip: &[u8], port: u16) -> Result<Handle, Error> {
-		let address = IpAddress::from_str(std::str::from_utf8(ip).map_err(|_| Error::Illegal)?)
-			.map_err(|_| Error::Illegal)?;
+	pub(crate) async fn connect(&self, ip: &[u8], port: u16) -> Result<Handle, NetworkError> {
+		let address =
+			IpAddress::from_str(std::str::from_utf8(ip).map_err(|_| NetworkError::InvalidInput)?)
+				.map_err(|_| NetworkError::InvalidInput)?;
 
 		self.with_context(|socket, cx| {
 			socket.connect(
@@ -203,12 +204,14 @@ impl AsyncSocket {
 				LOCAL_ENDPOINT.fetch_add(1, Ordering::SeqCst),
 			)
 		})
-		.map_err(|_| Error::Illegal)?;
+		.map_err(|_| NetworkError::ConnectionRefused)?;
 
 		future::poll_fn(|cx| {
 			self.with(|socket| match socket.state() {
-				TcpState::Closed | TcpState::TimeWait => Poll::Ready(Err(Error::Unaddressable)),
-				TcpState::Listen => Poll::Ready(Err(Error::Illegal)),
+				TcpState::Closed | TcpState::TimeWait => {
+					Poll::Ready(Err(NetworkError::ConnectionRefused))
+				}
+				TcpState::Listen => Poll::Ready(Err(NetworkError::ConnectionRefused)),
 				TcpState::SynSent | TcpState::SynReceived => {
 					socket.register_send_waker(cx.waker());
 					Poll::Pending
@@ -219,8 +222,8 @@ impl AsyncSocket {
 		.await
 	}
 
-	pub(crate) async fn accept(&self, port: u16) -> Result<(IpAddress, u16), Error> {
-		self.with(|socket| socket.listen(port).map_err(|_| Error::Illegal))?;
+	pub(crate) async fn accept(&self, port: u16) -> Result<(IpAddress, u16), NetworkError> {
+		self.with(|socket| socket.listen(port).map_err(|_| NetworkError::InvalidInput))?;
 
 		future::poll_fn(|cx| {
 			self.with(|socket| {
@@ -231,7 +234,7 @@ impl AsyncSocket {
 						TcpState::Closed
 						| TcpState::Closing
 						| TcpState::FinWait1
-						| TcpState::FinWait2 => Poll::Ready(Err(Error::Illegal)),
+						| TcpState::FinWait2 => Poll::Ready(Err(NetworkError::InvalidInput)),
 						_ => {
 							socket.register_recv_waker(cx.waker());
 							Poll::Pending
@@ -243,7 +246,7 @@ impl AsyncSocket {
 		.await?;
 
 		let mut guard = NIC.lock();
-		let nic = guard.as_nic_mut().map_err(|_| Error::Illegal)?;
+		let nic = guard.as_nic_mut().map_err(|_| NetworkError::Other)?;
 		let socket = nic.iface.get_socket::<TcpSocket>(self.0);
 		socket.set_keep_alive(Some(Duration::from_millis(DEFAULT_KEEP_ALIVE_INTERVAL)));
 		let endpoint = socket.remote_endpoint();
@@ -251,44 +254,50 @@ impl AsyncSocket {
 		Ok((endpoint.addr, endpoint.port))
 	}
 
-	pub(crate) async fn read(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+	pub(crate) async fn read(&self, buffer: &mut [u8]) -> Result<usize, NetworkError> {
 		future::poll_fn(|cx| {
 			self.with(|socket| match socket.state() {
 				TcpState::FinWait1
 				| TcpState::FinWait2
 				| TcpState::Closed
 				| TcpState::Closing
-				| TcpState::TimeWait => Poll::Ready(Err(Error::Illegal)),
+				| TcpState::TimeWait => Poll::Ready(Err(NetworkError::NotConnected)),
 				_ => {
-					if socket.can_recv() {
-						let n = socket.recv_slice(buffer)?;
-						if n > 0 || buffer.is_empty() {
-							return Poll::Ready(Ok(n));
-						}
+					if !socket.may_recv() {
+						Poll::Ready(Err(NetworkError::NotConnected))
+					} else if socket.can_recv() {
+						Poll::Ready(
+							socket
+								.recv_slice(buffer)
+								.map_err(|_| NetworkError::ConnectionRefused),
+						)
+					} else {
+						socket.register_recv_waker(cx.waker());
+						Poll::Pending
 					}
-
-					socket.register_recv_waker(cx.waker());
-					Poll::Pending
 				}
 			})
 		})
 		.await
-		.map_err(|_| Error::Illegal)
 	}
 
-	pub(crate) async fn write(&self, buffer: &[u8]) -> Result<usize, Error> {
+	pub(crate) async fn write(&self, buffer: &[u8]) -> Result<usize, NetworkError> {
 		future::poll_fn(|cx| {
 			self.with(|socket| match socket.state() {
 				TcpState::FinWait1
 				| TcpState::FinWait2
 				| TcpState::Closed
 				| TcpState::Closing
-				| TcpState::TimeWait => Poll::Ready(Err(Error::Illegal)),
+				| TcpState::TimeWait => Poll::Ready(Err(NetworkError::NotConnected)),
 				_ => {
 					if !socket.may_send() {
-						Poll::Ready(Err(Error::Illegal))
+						Poll::Ready(Err(NetworkError::NotConnected))
 					} else if socket.can_send() {
-						Poll::Ready(socket.send_slice(buffer).map_err(|_| Error::Illegal))
+						Poll::Ready(
+							socket
+								.send_slice(buffer)
+								.map_err(|_| NetworkError::ConnectionRefused),
+						)
 					} else {
 						socket.register_send_waker(cx.waker());
 						Poll::Pending
@@ -299,14 +308,14 @@ impl AsyncSocket {
 		.await
 	}
 
-	pub(crate) async fn close(&self) -> Result<(), Error> {
+	pub(crate) async fn close(&self) -> Result<(), NetworkError> {
 		future::poll_fn(|cx| {
 			self.with(|socket| match socket.state() {
 				TcpState::FinWait1
 				| TcpState::FinWait2
 				| TcpState::Closed
 				| TcpState::Closing
-				| TcpState::TimeWait => Poll::Ready(Err(Error::Illegal)),
+				| TcpState::TimeWait => Poll::Ready(Err(NetworkError::NotConnected)),
 				_ => {
 					if socket.send_queue() > 0 {
 						socket.register_send_waker(cx.waker());
@@ -383,7 +392,7 @@ extern "C" fn nic_thread(_: usize) {
 	}
 }
 
-pub(crate) fn network_init() -> Result<(), ()> {
+pub(crate) fn network_init() -> Result<(), NetworkError> {
 	// initialize variable, which contains the next local endpoint
 	LOCAL_ENDPOINT.store(start_endpoint(), Ordering::SeqCst);
 
@@ -412,32 +421,57 @@ pub(crate) fn network_init() -> Result<(), ()> {
 }
 
 #[no_mangle]
-pub fn sys_tcp_stream_connect(ip: &[u8], port: u16, timeout: Option<u64>) -> Result<Handle, ()> {
+pub fn sys_tcp_stream_connect(
+	ip: &[u8],
+	port: u16,
+	timeout: Option<u64>,
+) -> Result<Handle, NetworkError> {
 	let socket = AsyncSocket::new();
-	block_on(socket.connect(ip, port), timeout.map(Duration::from_millis))?.map_err(|_| ())
+	block_with_timeout_on(
+		socket.connect(ip, port),
+		timeout.map(Duration::from_millis),
+		Err(NetworkError::TimedOut),
+	)
 }
 
 #[no_mangle]
-pub fn sys_tcp_stream_read(handle: Handle, buffer: &mut [u8]) -> Result<usize, ()> {
+pub fn sys_tcp_stream_read(
+	handle: Handle,
+	buffer: &mut [u8],
+	blocking: bool,
+) -> Result<usize, NetworkError> {
 	let socket = AsyncSocket::from(handle);
-	block_on(socket.read(buffer), None)?.map_err(|_| ())
+	if blocking {
+		block_on(socket.read(buffer))
+	} else {
+		poll_on(socket.read(buffer), Err(NetworkError::WouldBlock))
+	}
 }
 
 #[no_mangle]
-pub fn sys_tcp_stream_write(handle: Handle, buffer: &[u8]) -> Result<usize, ()> {
+pub fn sys_tcp_stream_write(
+	handle: Handle,
+	buffer: &[u8],
+	blocking: bool,
+) -> Result<usize, NetworkError> {
 	let socket = AsyncSocket::from(handle);
-	block_on(socket.write(buffer), None)?.map_err(|_| ())
+
+	if blocking {
+		block_on(socket.write(buffer))
+	} else {
+		poll_on(socket.write(buffer), Err(NetworkError::WouldBlock))
+	}
 }
 
 #[no_mangle]
-pub fn sys_tcp_stream_close(handle: Handle) -> Result<(), ()> {
+pub fn sys_tcp_stream_close(handle: Handle) -> Result<(), NetworkError> {
 	let socket = AsyncSocket::from(handle);
-	block_on(socket.close(), None)?.map_err(|_| ())
+	block_on(socket.close())
 }
 
 //ToDo: an enum, or at least constants would be better
 #[no_mangle]
-pub fn sys_tcp_stream_shutdown(handle: Handle, how: i32) -> Result<(), ()> {
+pub fn sys_tcp_stream_shutdown(handle: Handle, how: i32) -> Result<(), NetworkError> {
 	match how {
 		0 /* Read */ => {
 			trace!("Shutdown::Read is not implemented");
@@ -456,61 +490,56 @@ pub fn sys_tcp_stream_shutdown(handle: Handle, how: i32) -> Result<(), ()> {
 }
 
 #[no_mangle]
-pub fn sys_tcp_stream_set_read_timeout(_handle: Handle, _timeout: Option<u64>) -> Result<(), ()> {
-	Err(())
+pub fn sys_tcp_stream_set_read_timeout(
+	_handle: Handle,
+	_timeout: Option<u64>,
+) -> Result<(), NetworkError> {
+	Err(NetworkError::Unsupported)
 }
 
 #[no_mangle]
-pub fn sys_tcp_stream_get_read_timeout(_handle: Handle) -> Result<Option<u64>, ()> {
-	Err(())
+pub fn sys_tcp_stream_get_read_timeout(_handle: Handle) -> Result<Option<u64>, NetworkError> {
+	Err(NetworkError::Unsupported)
 }
 
 #[no_mangle]
-pub fn sys_tcp_stream_set_write_timeout(_handle: Handle, _timeout: Option<u64>) -> Result<(), ()> {
-	Err(())
+pub fn sys_tcp_stream_set_write_timeout(
+	_handle: Handle,
+	_timeout: Option<u64>,
+) -> Result<(), NetworkError> {
+	Err(NetworkError::Unsupported)
 }
 
 #[no_mangle]
-pub fn sys_tcp_stream_get_write_timeout(_handle: Handle) -> Result<Option<u64>, ()> {
-	Err(())
+pub fn sys_tcp_stream_get_write_timeout(_handle: Handle) -> Result<Option<u64>, NetworkError> {
+	Err(NetworkError::Unsupported)
 }
 
 #[deprecated(since = "0.1.14", note = "Please don't use this function")]
 #[no_mangle]
-pub fn sys_tcp_stream_duplicate(_handle: Handle) -> Result<Handle, ()> {
-	Err(())
+pub fn sys_tcp_stream_duplicate(_handle: Handle) -> Result<Handle, NetworkError> {
+	Err(NetworkError::Unsupported)
 }
 
 #[no_mangle]
-pub fn sys_tcp_stream_peek(_handle: Handle, _buf: &mut [u8]) -> Result<usize, ()> {
-	Err(())
+pub fn sys_tcp_stream_peek(_handle: Handle, _buf: &mut [u8]) -> Result<usize, NetworkError> {
+	Err(NetworkError::Unsupported)
 }
 
 #[no_mangle]
-pub fn sys_tcp_stream_set_nonblocking(_handle: Handle, mode: bool) -> Result<(), ()> {
-	// non-blocking mode is currently not support
-	// => return only an error, if `mode` is defined as `true`
-	if mode {
-		Err(())
-	} else {
-		Ok(())
-	}
+pub fn sys_tcp_stream_set_tll(_handle: Handle, _ttl: u32) -> Result<(), NetworkError> {
+	Err(NetworkError::Unsupported)
 }
 
 #[no_mangle]
-pub fn sys_tcp_stream_set_tll(_handle: Handle, _ttl: u32) -> Result<(), ()> {
-	Err(())
+pub fn sys_tcp_stream_get_tll(_handle: Handle) -> Result<u32, NetworkError> {
+	Err(NetworkError::Unsupported)
 }
 
 #[no_mangle]
-pub fn sys_tcp_stream_get_tll(_handle: Handle) -> Result<u32, ()> {
-	Err(())
-}
-
-#[no_mangle]
-pub fn sys_tcp_stream_peer_addr(handle: Handle) -> Result<(IpAddress, u16), ()> {
+pub fn sys_tcp_stream_peer_addr(handle: Handle) -> Result<(IpAddress, u16), NetworkError> {
 	let mut guard = NIC.lock();
-	let nic = guard.as_nic_mut().map_err(drop)?;
+	let nic = guard.as_nic_mut().expect("Unable to get lock");
 	let socket = nic.iface.get_socket::<TcpSocket>(handle);
 	socket.set_keep_alive(Some(Duration::from_millis(DEFAULT_KEEP_ALIVE_INTERVAL)));
 	let endpoint = socket.remote_endpoint();
@@ -519,9 +548,9 @@ pub fn sys_tcp_stream_peer_addr(handle: Handle) -> Result<(IpAddress, u16), ()> 
 }
 
 #[no_mangle]
-pub fn sys_tcp_listener_accept(port: u16) -> Result<(Handle, IpAddress, u16), ()> {
+pub fn sys_tcp_listener_accept(port: u16) -> Result<(Handle, IpAddress, u16), NetworkError> {
 	let socket = AsyncSocket::new();
-	let (addr, port) = block_on(socket.accept(port), None)?.map_err(|_| ())?;
+	let (addr, port) = block_on(socket.accept(port))?;
 
 	Ok((socket.0, addr, port))
 }

@@ -92,15 +92,38 @@ impl Wake for ThreadNotify {
 	}
 }
 
-/// Blocks the current thread on `f`, running the executor when idling.
-pub fn block_on<F, T>(future: F, timeout: Option<Duration>) -> Result<T, ()>
+thread_local! {
+	static CURRENT_THREAD_NOTIFY: Arc<ThreadNotify> = Arc::new(ThreadNotify::new());
+}
+
+// Blocks the current thread on `f`, running the executor when idling.
+pub fn poll_on<F, T>(future: F, default: T) -> T
 where
 	F: Future<Output = T>,
 {
-	thread_local! {
-		static CURRENT_THREAD_NOTIFY: Arc<ThreadNotify> = Arc::new(ThreadNotify::new());
-	}
+	CURRENT_THREAD_NOTIFY.with(|thread_notify| {
+		unsafe { sys_set_network_polling_mode(true) }
+		let waker = thread_notify.clone().into();
+		let mut cx = Context::from_waker(&waker);
+		pin!(future);
 
+		if let Poll::Ready(t) = future.as_mut().poll(&mut cx) {
+			unsafe {
+				sys_set_network_polling_mode(false);
+			}
+
+			return t;
+		}
+
+		default
+	})
+}
+
+/// Blocks the current thread on `f`, running the executor when idling.
+pub fn block_with_timeout_on<F, T>(future: F, timeout: Option<Duration>, default: T) -> T
+where
+	F: Future<Output = T>,
+{
 	CURRENT_THREAD_NOTIFY.with(|thread_notify| {
 		unsafe { sys_set_network_polling_mode(true) }
 		let start = Instant::now();
@@ -113,7 +136,7 @@ where
 				unsafe {
 					sys_set_network_polling_mode(false);
 				}
-				return Ok(t);
+				return t;
 			}
 
 			if let Some(duration) = timeout {
@@ -121,8 +144,54 @@ where
 					unsafe {
 						sys_set_network_polling_mode(false);
 					}
-					return Err(());
+
+					return default;
 				}
+			}
+
+			run_executor();
+
+			let delay = network_delay(start).map(|d| d.total_millis());
+
+			match delay {
+				Some(d) => {
+					if d > 100 {
+						let unparked = thread_notify.unparked.swap(false, Ordering::Acquire);
+						if !unparked {
+							unsafe {
+								sys_set_network_polling_mode(false);
+								sys_block_current_task_with_timeout(d);
+								sys_yield();
+								sys_set_network_polling_mode(true);
+							}
+							thread_notify.unparked.store(false, Ordering::Release);
+						}
+					}
+				}
+				None => {}
+			}
+		}
+	})
+}
+
+/// Blocks the current thread on `f`, running the executor when idling.
+pub fn block_on<F, T>(future: F) -> T
+where
+	F: Future<Output = T>,
+{
+	CURRENT_THREAD_NOTIFY.with(|thread_notify| {
+		unsafe { sys_set_network_polling_mode(true) }
+		let start = Instant::now();
+		let waker = thread_notify.clone().into();
+		let mut cx = Context::from_waker(&waker);
+		pin!(future);
+
+		loop {
+			if let Poll::Ready(t) = future.as_mut().poll(&mut cx) {
+				unsafe {
+					sys_set_network_polling_mode(false);
+				}
+				return t;
 			}
 
 			run_executor();
