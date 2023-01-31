@@ -1,0 +1,4 @@
+(function() {var implementors = {
+"bytes":[["impl&lt;B:&nbsp;<a class=\"trait\" href=\"bytes/buf/trait.BufMut.html\" title=\"trait bytes::buf::BufMut\">BufMut</a> + Sized&gt; Write for <a class=\"struct\" href=\"bytes/buf/struct.Writer.html\" title=\"struct bytes::buf::Writer\">Writer</a>&lt;B&gt;"]],
+"chunked_transfer":[["impl&lt;W&gt; Write for <a class=\"struct\" href=\"chunked_transfer/struct.Encoder.html\" title=\"struct chunked_transfer::Encoder\">Encoder</a>&lt;W&gt;<span class=\"where fmt-newline\">where<br>&nbsp;&nbsp;&nbsp;&nbsp;W: Write,</span>"]]
+};if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()

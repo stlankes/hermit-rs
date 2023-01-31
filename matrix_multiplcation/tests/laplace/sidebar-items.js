@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":[["compute",""],["get_residual",""],["iteration",""]]};

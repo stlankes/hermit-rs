@@ -1,0 +1,5 @@
+(function() {var implementors = {
+"ascii":[["impl Borrow&lt;<a class=\"struct\" href=\"ascii/struct.AsciiStr.html\" title=\"struct ascii::AsciiStr\">AsciiStr</a>&gt; for <a class=\"struct\" href=\"ascii/struct.AsciiString.html\" title=\"struct ascii::AsciiString\">AsciiString</a>"]],
+"bytes":[["impl Borrow&lt;[u8]&gt; for <a class=\"struct\" href=\"bytes/struct.Bytes.html\" title=\"struct bytes::Bytes\">Bytes</a>"],["impl Borrow&lt;[u8]&gt; for <a class=\"struct\" href=\"bytes/struct.BytesMut.html\" title=\"struct bytes::BytesMut\">BytesMut</a>"]],
+"crossbeam_epoch":[["impl&lt;T:&nbsp;?Sized + <a class=\"trait\" href=\"crossbeam_epoch/trait.Pointable.html\" title=\"trait crossbeam_epoch::Pointable\">Pointable</a>&gt; Borrow&lt;T&gt; for <a class=\"struct\" href=\"crossbeam_epoch/struct.Owned.html\" title=\"struct crossbeam_epoch::Owned\">Owned</a>&lt;T&gt;"]]
+};if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()

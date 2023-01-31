@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":[["arithmetic",""],["create_file",""],["hello",""],["laplace",""],["matrix_setup",""],["pi_parallel",""],["pi_sequential",""],["print_argv",""],["print_env",""],["read_file",""],["thread_creation",""],["threading",""]],"mod":[["laplace",""],["matmul",""],["thread_local",""]]};

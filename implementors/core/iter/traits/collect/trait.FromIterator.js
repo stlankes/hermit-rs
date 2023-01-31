@@ -1,0 +1,6 @@
+(function() {var implementors = {
+"ascii":[["impl&lt;A:&nbsp;AsRef&lt;<a class=\"struct\" href=\"ascii/struct.AsciiStr.html\" title=\"struct ascii::AsciiStr\">AsciiStr</a>&gt;&gt; FromIterator&lt;A&gt; for <a class=\"struct\" href=\"ascii/struct.AsciiString.html\" title=\"struct ascii::AsciiString\">AsciiString</a>"]],
+"bytes":[["impl FromIterator&lt;u8&gt; for <a class=\"struct\" href=\"bytes/struct.Bytes.html\" title=\"struct bytes::Bytes\">Bytes</a>"],["impl FromIterator&lt;u8&gt; for <a class=\"struct\" href=\"bytes/struct.BytesMut.html\" title=\"struct bytes::BytesMut\">BytesMut</a>"],["impl&lt;'a&gt; FromIterator&lt;&amp;'a u8&gt; for <a class=\"struct\" href=\"bytes/struct.BytesMut.html\" title=\"struct bytes::BytesMut\">BytesMut</a>"]],
+"crossbeam_deque":[["impl&lt;T&gt; FromIterator&lt;<a class=\"enum\" href=\"crossbeam_deque/enum.Steal.html\" title=\"enum crossbeam_deque::Steal\">Steal</a>&lt;T&gt;&gt; for <a class=\"enum\" href=\"crossbeam_deque/enum.Steal.html\" title=\"enum crossbeam_deque::Steal\">Steal</a>&lt;T&gt;"]],
+"vec_map":[["impl&lt;V&gt; FromIterator&lt;(usize, V)&gt; for <a class=\"struct\" href=\"vec_map/struct.VecMap.html\" title=\"struct vec_map::VecMap\">VecMap</a>&lt;V&gt;"]]
+};if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()
