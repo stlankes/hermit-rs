@@ -122,7 +122,7 @@ pub(crate) fn init<T>(linker: &mut wasmtime::Linker<T>) -> Result<()> {
 				// Currently, we ignore the arguments
 				if let Some(Extern::Memory(mem)) = caller.get_export("memory") {
 					// Currently, we ignore the environment
-					let zereo: u32 = 0;
+					let zero: u32 = 0;
 
 					let _ = mem.write(
 						caller.as_context_mut(),
