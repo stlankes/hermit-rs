@@ -1,10 +1,20 @@
+use std::sync::OnceLock;
 use std::time::{Instant, SystemTime};
 
 use anyhow::Result;
-use hermit_sync::OnceCell;
 use log::info;
+use wasi::*;
 use wasmtime::{AsContext, AsContextMut, Caller, Extern};
 use zerocopy::AsBytes;
+
+fn cvt(err: i32) -> i32 {
+	match err {
+		hermit_abi::EINVAL => ERRNO_INVAL.raw() as i32,
+		hermit_abi::EFAULT => ERRNO_FAULT.raw() as i32,
+		hermit_abi::ENOMEM => ERRNO_NOMEM.raw() as i32,
+		_ => ERRNO_NOSYS.raw() as i32,
+	}
+}
 
 pub(crate) fn init<T>(linker: &mut wasmtime::Linker<T>) -> Result<()> {
 	info!("Initialize module wasi_snapshot_preview1");
@@ -28,15 +38,15 @@ pub(crate) fn init<T>(linker: &mut wasmtime::Linker<T>) -> Result<()> {
 									nanos.as_bytes(),
 								);
 
-								return 0;
+								return ERRNO_SUCCESS.raw() as i32;
 							}
 
-							hermit_abi::EINVAL
+							ERRNO_INVAL.raw() as i32
 						}
-						Err(_) => unsafe { hermit_abi::get_errno() },
+						Err(_) => unsafe { cvt(hermit_abi::get_errno()) },
 					},
 					1 => {
-						static NOW: OnceCell<Instant> = OnceCell::new();
+						static NOW: OnceLock<Instant> = OnceLock::new();
 
 						if let Some(Extern::Memory(mem)) = caller.get_export("memory") {
 							let elapsed = NOW.get_or_init(Instant::now).elapsed();
@@ -48,12 +58,12 @@ pub(crate) fn init<T>(linker: &mut wasmtime::Linker<T>) -> Result<()> {
 								nanos.as_bytes(),
 							);
 
-							return 0;
+							return ERRNO_SUCCESS.raw() as i32;
 						}
 
-						hermit_abi::EINVAL
+						ERRNO_INVAL.raw() as i32
 					}
-					_ => hermit_abi::EINVAL,
+					_ => ERRNO_INVAL.raw() as i32,
 				}
 			},
 		)
@@ -107,10 +117,10 @@ pub(crate) fn init<T>(linker: &mut wasmtime::Linker<T>) -> Result<()> {
 						nwritten_bytes.as_bytes(),
 					);
 
-					return 0;
+					return ERRNO_SUCCESS.raw() as i32;
 				}
 
-				hermit_abi::EINVAL
+				ERRNO_INVAL.raw() as i32
 			},
 		)
 		.unwrap();
@@ -135,10 +145,10 @@ pub(crate) fn init<T>(linker: &mut wasmtime::Linker<T>) -> Result<()> {
 						zero.as_bytes(),
 					);
 
-					return 0;
+					return ERRNO_SUCCESS.raw() as i32;
 				}
 
-				hermit_abi::EINVAL
+				ERRNO_INVAL.raw() as i32
 			},
 		)
 		.unwrap();
@@ -146,7 +156,7 @@ pub(crate) fn init<T>(linker: &mut wasmtime::Linker<T>) -> Result<()> {
 		.func_wrap(
 			"wasi_snapshot_preview1",
 			"environ_get",
-			|_env_ptr: i32, _env_buffer_ptr: i32| hermit_abi::ENOSYS,
+			|_env_ptr: i32, _env_buffer_ptr: i32| ERRNO_INVAL.raw() as i32,
 		)
 		.unwrap();
 	linker
@@ -169,10 +179,10 @@ pub(crate) fn init<T>(linker: &mut wasmtime::Linker<T>) -> Result<()> {
 						zero.as_bytes(),
 					);
 
-					return 0;
+					return ERRNO_SUCCESS.raw() as i32;
 				}
 
-				hermit_abi::EINVAL
+				ERRNO_INVAL.raw() as i32
 			},
 		)
 		.unwrap();
