@@ -156,7 +156,7 @@ pub(crate) fn init<T>(linker: &mut wasmtime::Linker<T>) -> Result<()> {
 			|mut caller: Caller<'_, _>, number_env_variables_ptr: i32, env_buffer_size_ptr: i32| {
 				if let Some(Extern::Memory(mem)) = caller.get_export("memory") {
 					// Currently, we ignore the environment
-					let zereo: u32 = 0;
+					let zero: u32 = 0;
 
 					let _ = mem.write(
 						caller.as_context_mut(),
