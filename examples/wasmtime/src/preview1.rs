@@ -127,12 +127,12 @@ pub(crate) fn init<T>(linker: &mut wasmtime::Linker<T>) -> Result<()> {
 					let _ = mem.write(
 						caller.as_context_mut(),
 						number_args_ptr.try_into().unwrap(),
-						zereo.as_bytes(),
+						zero.as_bytes(),
 					);
 					let _ = mem.write(
 						caller.as_context_mut(),
 						args_size_ptr.try_into().unwrap(),
-						zereo.as_bytes(),
+						zero.as_bytes(),
 					);
 
 					return 0;
@@ -161,12 +161,12 @@ pub(crate) fn init<T>(linker: &mut wasmtime::Linker<T>) -> Result<()> {
 					let _ = mem.write(
 						caller.as_context_mut(),
 						number_env_variables_ptr.try_into().unwrap(),
-						zereo.as_bytes(),
+						zero.as_bytes(),
 					);
 					let _ = mem.write(
 						caller.as_context_mut(),
 						env_buffer_size_ptr.try_into().unwrap(),
-						zereo.as_bytes(),
+						zero.as_bytes(),
 					);
 
 					return 0;
