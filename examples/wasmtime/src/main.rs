@@ -38,16 +38,6 @@ pub fn main() -> Result<()> {
 	let elapsed = now.elapsed();
 	println!("Time to create module: {} msec", elapsed.as_millis());
 
-	/*let imports = module.imports();
-	for i in imports {
-		info!("import from module `{}` symbol `{}`", i.module(), i.name());
-	}
-
-	let exports = module.exports();
-	for i in exports {
-		info!("exports symbol `{}`", i.name());
-	}*/
-
 	debug!("Create Linker");
 	#[allow(unused_mut)]
 	let mut linker = Linker::new(&engine);
